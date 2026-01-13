@@ -10,7 +10,13 @@ Pipeline huấn luyện được xây dựng theo hướng thực tiễn, kế t
 
 ---
 
-## Bộ dữ liệu (download tại https://challenge2024.isic-archive.com/)
+## Bộ dữ liệu
+Do kích thước lớn và các ràng buộc về bản quyền của bộ dữ liệu ISIC 2024, dữ liệu thô không được đính kèm trong kho mã nguồn này.
+
+Bộ dữ liệu có thể được tải trực tiếp từ trang chính thức của cuộc thi:
+https://challenge2024.isic-archive.com/
+
+Sau khi tải về, vui lòng tổ chức dữ liệu theo cấu trúc thư mục ở bên dưới.
 
 - **Nguồn dữ liệu**: ISIC Challenge 2024 (Kaggle)  
 - **Loại dữ liệu**: Ảnh da liễu đã được cắt vùng tổn thương  
@@ -116,15 +122,24 @@ PR-AUC được lựa chọn làm thước đo chính vì phản ánh trực ti�
 ## Cấu trúc thư mục
 
 ```text
-.
+Machine_Learning_project/
 ├── data/
+│   ├── ISIC_2024_Training_Input/
+│   ├── ISIC_2024_Training_GroundTruth.csv
+│   ├── train.csv
+│   ├── val.csv
+│   ├── test.csv
 │   ├── train_ref10.csv
 │   ├── val_ref10.csv
-│   └── test_ref10.csv (nếu có)
+│   └── test_ref10.csv
+│
 ├── outputs/
-│   ├── best_seed*_convnext_tiny.pt
-│   ├── history_seed*_convnext_tiny.csv
-│   ├── pr_curve_ensemble.png
-│   └── pr_auc_by_epoch.png
+│
+├── split_data.py
+├── make_train_ref10.py
+├── make_val_ref10.py
+├── make_test_ref10.py
+│
 ├── train.py
-└── README.md
+└── train_resnet50.py
+
