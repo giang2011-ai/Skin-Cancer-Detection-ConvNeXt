@@ -10,13 +10,14 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
-import timm
-from timm.utils import ModelEmaV2
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, auc
-
 import matplotlib.pyplot as plt
 
-from torch.amp import autocast, GradScaler  # new AMP API
+from torch.amp import autocast, GradScaler 
+from torch.optim.swa_utils import AveragedModel
+
+from models.convnext_tiny import create_model
+
 
 # ======================
 # CONFIG CHO SKIN CANCER (0.1%)
@@ -26,7 +27,7 @@ TRAIN_CSV = os.path.join(DATA_DIR, "train_ref10.csv")
 VAL_CSV   = os.path.join(DATA_DIR, "val_ref10.csv")
 LABEL_COL = "target"
 
-MODEL_NAME = "convnext_tiny.fb_in22k_ft_in1k"
+MODEL_NAME = "convnext_tiny_scratch"  
 IMG_SIZE = 384
 BATCH_SIZE = 16
 EPOCHS = 20
@@ -46,9 +47,15 @@ def seed_all(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-    # nhanh nhưng có thể không hoàn toàn deterministic
     torch.backends.cudnn.benchmark = True
+
+
+@torch.no_grad()
+def ema_update(ema_model: nn.Module, model: nn.Module, decay: float = 0.999):
+    # ema = decay * ema + (1-decay) * model
+    for ema_p, p in zip(ema_model.parameters(), model.parameters()):
+        ema_p.mul_(decay).add_(p, alpha=1.0 - decay)
+
 
 class ImageCSVDataset(Dataset):
     def __init__(self, csv_path: str, transform=None, label_col: str = "target"):
@@ -74,6 +81,7 @@ class ImageCSVDataset(Dataset):
 
         return img, torch.tensor([y], dtype=torch.float32)
 
+
 # ======================
 # BINARY MIXUP
 # ======================
@@ -90,7 +98,7 @@ class BinaryMixup:
         self.label_smoothing = float(label_smoothing)
 
     def __call__(self, x: torch.Tensor, y: torch.Tensor):
-        # label smoothing nhẹ (optional)
+        # label smoothing nhẹ 
         def smooth(t):
             if self.label_smoothing <= 0:
                 return t
@@ -111,6 +119,7 @@ class BinaryMixup:
         y_mix = y * lam + y2 * (1.0 - lam)
 
         return x_mix, smooth(y_mix)
+
 
 # ======================
 # TTA predict (ONE MODEL)
@@ -134,10 +143,12 @@ def predict_logits_tta(model: nn.Module, x: torch.Tensor) -> torch.Tensor:
     l1, l2, l3, l4 = torch.split(logits, bs, dim=0)
     return (l1 + l2 + l3 + l4) / 4.0  # (B,1)
 
+
 @torch.no_grad()
 def predict_proba_tta(model: nn.Module, x: torch.Tensor) -> torch.Tensor:
     logits = predict_logits_tta(model, x)
     return torch.sigmoid(logits)
+
 
 # ======================
 # EVAL + COLLECT PROBS
@@ -173,6 +184,7 @@ def evaluate_ensemble(models, loader, device):
 
     return pr_auc, roc_auc
 
+
 @torch.no_grad()
 def collect_probs_ensemble(models, loader, device):
     """
@@ -195,6 +207,7 @@ def collect_probs_ensemble(models, loader, device):
 
     return np.array(ys), np.array(probs)
 
+
 def plot_pr_curve(y_true, y_score, out_path, title="Precision-Recall Curve"):
     prec, rec, _ = precision_recall_curve(y_true, y_score)
     pr_auc_val = auc(rec, prec)
@@ -209,6 +222,7 @@ def plot_pr_curve(y_true, y_score, out_path, title="Precision-Recall Curve"):
     plt.close()
 
     return pr_auc_val
+
 
 def plot_pr_auc_by_epoch(hist_paths, out_path):
     """
@@ -228,6 +242,7 @@ def plot_pr_auc_by_epoch(hist_paths, out_path):
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
+
 # ======================
 # TRAIN ONE SEED (LOG HISTORY)
 # ======================
@@ -237,14 +252,15 @@ def train_one_seed(seed: int, train_loader, val_loader, device: str):
 
     mixup_fn = BinaryMixup(alpha=0.4, prob=0.7, label_smoothing=0.05)
 
-    model = timm.create_model(
-        MODEL_NAME,
-        pretrained=True,
+    model = create_model(
+        model_name="convnext_tiny",
+        pretrained=False,     
         num_classes=1,
         drop_path_rate=0.1
     ).to(device)
 
-    model_ema = ModelEmaV2(model, decay=0.999, device=device)
+    ema_decay = 0.999
+    model_ema = AveragedModel(model).to(device)
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-2)
@@ -262,7 +278,7 @@ def train_one_seed(seed: int, train_loader, val_loader, device: str):
     best_pr = 0.0
     best_path = os.path.join(OUT_DIR, f"best_seed{seed}_{MODEL_NAME}.pt")
 
-    history = []  # <-- lưu PR-AUC theo epoch
+    history = []
 
     for ep in range(1, EPOCHS + 1):
         model.train()
@@ -289,19 +305,19 @@ def train_one_seed(seed: int, train_loader, val_loader, device: str):
                 loss.backward()
                 optimizer.step()
 
-            model_ema.update(model)
-            scheduler.step()
+            ema_update(model_ema, model, decay=ema_decay)
 
+            scheduler.step()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        pr_auc, roc_auc = evaluate_ensemble([model_ema.module], val_loader, device)
+        pr_auc, roc_auc = evaluate_ensemble([model_ema], val_loader, device)
         print(f" >> [VAL EMA][Seed {seed}] PR-AUC: {pr_auc:.4f} | ROC-AUC: {roc_auc:.4f}")
 
         history.append({"epoch": ep, "pr_auc": pr_auc, "roc_auc": roc_auc})
 
         if pr_auc > best_pr:
             best_pr = pr_auc
-            torch.save(model_ema.module.state_dict(), best_path)
+            torch.save(model_ema.state_dict(), best_path)
             print(f"Saved Best EMA Model: {best_path}")
 
     hist_path = os.path.join(OUT_DIR, f"history_seed{seed}_{MODEL_NAME}.csv")
@@ -311,19 +327,26 @@ def train_one_seed(seed: int, train_loader, val_loader, device: str):
     print(f"[Seed {seed}] Done. Best PR-AUC: {best_pr:.4f}")
     return best_path, hist_path
 
+
 # ======================
 # LOAD ENSEMBLE
 # ======================
 def load_models_from_paths(paths, device: str):
     models = []
     for p in paths:
-        m = timm.create_model(MODEL_NAME, pretrained=False, num_classes=1, drop_path_rate=0.0)
+        m = create_model(
+            model_name="convnext_tiny",
+            pretrained=False,
+            num_classes=1,
+            drop_path_rate=0.0
+        )
         sd = torch.load(p, map_location="cpu")
         m.load_state_dict(sd, strict=True)
         m.to(device)
         m.eval()
         models.append(m)
     return models
+
 
 # ======================
 # MAIN
@@ -351,7 +374,7 @@ def main():
     train_ds = ImageCSVDataset(TRAIN_CSV, transform=train_tf, label_col=LABEL_COL)
     val_ds   = ImageCSVDataset(VAL_CSV,   transform=val_tf,   label_col=LABEL_COL)
 
-    # WeightedRandomSampler (cực quan trọng cho 0.1%)
+    # WeightedRandomSampler
     y_train = train_ds.df[LABEL_COL].values.astype(int)
     class_counts = np.bincount(y_train, minlength=2)
     class_counts = np.maximum(class_counts, 1)
@@ -408,6 +431,7 @@ def main():
     pr_epoch_path = os.path.join(OUT_DIR, "pr_auc_by_epoch.png")
     plot_pr_auc_by_epoch(hist_paths, pr_epoch_path)
     print(f"Saved PR-AUC by epoch: {pr_epoch_path}")
+
 
 if __name__ == "__main__":
     main()
