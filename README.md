@@ -134,8 +134,8 @@ Machine_Learning_project/
 │   └── test_ref10.csv
 │
 ├── models/
-│   ├──__pycache__
-│   ├──convnext_tiny
+│   ├── __pycache__
+│   ├── convnext_tiny
 ├── outputs/
 │
 ├── split_data.py
