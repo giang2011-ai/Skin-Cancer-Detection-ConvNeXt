@@ -10,7 +10,7 @@ Pipeline huấn luyện được xây dựng theo hướng thực tiễn, kế t
 
 ---
 
-## Bộ dữ liệu
+## Bộ dữ liệu (download tại https://challenge2024.isic-archive.com/)
 
 - **Nguồn dữ liệu**: ISIC Challenge 2024 (Kaggle)  
 - **Loại dữ liệu**: Ảnh da liễu đã được cắt vùng tổn thương  
