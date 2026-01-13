@@ -1,5 +1,6 @@
 import os
 import random
+
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -10,13 +11,20 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, auc
+import timm
+from timm.utils import ModelEmaV2
+
+from sklearn.metrics import (
+    roc_auc_score,
+    average_precision_score,
+    precision_recall_curve,
+    auc,
+)
+
 import matplotlib.pyplot as plt
 
-from torch.amp import autocast, GradScaler 
-from torch.optim.swa_utils import AveragedModel
+from torch.amp import autocast, GradScaler  # new AMP API
 
-from models.convnext_tiny import create_model
 
 
 # ======================
