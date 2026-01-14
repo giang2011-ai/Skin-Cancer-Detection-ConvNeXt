@@ -11,9 +11,6 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
-import timm
-from timm.utils import ModelEmaV2
-
 from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
