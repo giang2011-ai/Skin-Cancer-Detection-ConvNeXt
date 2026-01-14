@@ -43,7 +43,7 @@ Ngoài ra, phân bố nhãn trong các tập dữ liệu được điều chỉn
 
 ## Kiến trúc mô hình
 
-- **Backbone**: ConvNeXt-Tiny (pretrained trên ImageNet)  
+- **Backbone**: ConvNeXt-Tiny 
 - **Đầu ra**: 1 logit (phân loại nhị phân)  
 - **Hàm kích hoạt đầu ra**: Sigmoid (trong giai đoạn suy luận)
 
@@ -133,6 +133,9 @@ Machine_Learning_project/
 │   ├── val_ref10.csv
 │   └── test_ref10.csv
 │
+├── models/
+│   ├── __pycache__
+│   ├── convnext_tiny
 ├── outputs/
 │
 ├── split_data.py
